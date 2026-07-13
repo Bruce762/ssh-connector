@@ -69,7 +69,7 @@ awk -v start="$START_MARK" -v end="$END_MARK" '
     echo "Host $HOST_ALIAS"
     echo "    HostName $DOMAIN"
     echo "    User $USER_NAME"
-    echo "    IdentityFile ${SSH_IDENTITY_FILE:-$HOME/.ssh/home_mac_key}"
+    echo "    IdentityFile ${SSH_IDENTITY_FILE:-$HOME/.ssh/home_computer_key}"
     echo "    IdentitiesOnly yes"
     echo "    ProxyCommand $(which cloudflared) access ssh --hostname %h"
     echo "    StrictHostKeyChecking no"

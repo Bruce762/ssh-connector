@@ -1,16 +1,16 @@
 #!/bin/bash
 
 # 一次性腳本（在 client 端 / 筆電跑）：
-#   步驟 1：產生連 home-mac 專用的 SSH 金鑰對
+#   步驟 1：產生連 home-computer 專用的 SSH 金鑰對
 #   步驟 2：把公鑰送上家裡 Mac 的 authorized_keys
 # 步驟 3（IdentityFile）已寫進 ssh_client.sh，會自動處理。
 # 步驟 4（關 Mac 密碼登入）屬於危險的一次性動作，維持手動，最後只印提示。
 
 set -euo pipefail
 
-KEY_PATH="${KEY_PATH:-$HOME/.ssh/home_mac_key}"
-KEY_COMMENT="${KEY_COMMENT:-$(whoami)@$(hostname -s)-home_mac}"
-HOST_ALIAS="${HOST_ALIAS:-home-mac}"
+KEY_PATH="${KEY_PATH:-$HOME/.ssh/home_computer_key}"
+KEY_COMMENT="${KEY_COMMENT:-$(whoami)@$(hostname -s)-home_computer}"
+HOST_ALIAS="${HOST_ALIAS:-home-computer}"
 SSH_CONFIG="$HOME/.ssh/config"
 
 # ---------- 步驟 1：產生金鑰 ----------
@@ -29,7 +29,7 @@ else
 fi
 echo ""
 
-# ---------- 步驟 2：把公鑰送上 home-mac ----------
+# ---------- 步驟 2：把公鑰送上 home-computer ----------
 echo "📤 步驟 2：把公鑰送上 $HOST_ALIAS"
 
 # 先確認 ssh_client.sh 已經寫好 config 區塊（步驟 2 需要靠這個別名連線）
