@@ -17,7 +17,7 @@ if [ -z "$USER_NAME" ] || [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_I
 fi
 
 # Host alias 寫進 ~/.ssh/config 用
-HOST_ALIAS="home-mac"
+HOST_ALIAS="home-computer"
 SSH_CONFIG="$HOME/.ssh/config"
 
 echo "🔍 正在從 Telegram 取得最新網址..."
