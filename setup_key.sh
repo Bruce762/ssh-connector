@@ -2,9 +2,9 @@
 
 # 一次性腳本（在 client 端 / 筆電跑）：
 #   步驟 1：產生連 home-computer 專用的 SSH 金鑰對
-#   步驟 2：把公鑰送上家裡 Mac 的 authorized_keys
+#   步驟 2：把公鑰送上家裡電腦 的 authorized_keys
 # 步驟 3（IdentityFile）已寫進 ssh_client.sh，會自動處理。
-# 步驟 4（關 Mac 密碼登入）屬於危險的一次性動作，維持手動，最後只印提示。
+# 步驟 4（關 電腦 密碼登入）屬於危險的一次性動作，維持手動，最後只印提示。
 
 set -euo pipefail
 
@@ -41,7 +41,7 @@ if ! grep -q "^Host $HOST_ALIAS$" "$SSH_CONFIG" 2>/dev/null; then
     exit 0
 fi
 
-# 讓使用者確認：這一步會用「密碼」登入 Mac 一次（因為還沒關密碼登入），把公鑰寫上去
+# 讓使用者確認：這一步會用「密碼」登入 電腦 一次（因為還沒關密碼登入），把公鑰寫上去
 read -r -p "現在用密碼登入 $HOST_ALIAS 一次、把公鑰寫上去？(y/N) " ans
 case "$ans" in
     [yY]|[yY][eE][sS])
@@ -55,7 +55,7 @@ case "$ans" in
         fi
         echo "✅ 公鑰已送達"
         echo ""
-        echo "🔎 驗證：現在試著用金鑰連線（應只問 passphrase，不再問 Mac 密碼）"
+        echo "🔎 驗證：現在試著用金鑰連線（應只問 passphrase，不再問 電腦 密碼）"
         echo "        ssh $HOST_ALIAS"
         ;;
     *)
@@ -66,7 +66,7 @@ esac
 echo ""
 echo "👉 剩下步驟 4（維持手動，最關鍵也最危險）："
 echo "    確認 ssh $HOST_ALIAS 能用金鑰連進去後，"
-echo "    到家裡 Mac 編輯 /etc/ssh/sshd_config，設："
+echo "    到家裡電腦 編輯 /etc/ssh/sshd_config，設："
 echo "        PasswordAuthentication no"
 echo "        KbdInteractiveAuthentication no"
 echo "        PubkeyAuthentication yes"

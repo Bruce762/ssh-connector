@@ -1,10 +1,102 @@
 # ssh-connector
 
+用 Cloudflare Tunnel 把家裡電腦的 SSH 對外，網址透過 Telegram 自動通知，筆電端一鍵抓網址並連線。免固定 IP、免手動設定。
+
+## 角色
+
+- **家裡電腦（host）**：被連線的一方，跑 [ssh_host.sh](ssh_host.sh) 開 tunnel、發網址。
+- **筆電（client）**：外出連線的一方，跑 [ssh_client.sh](ssh_client.sh) 抓網址、連線。
+
+## 設定步驟（第一次）
+
+照順序做一次，之後就只剩「日常使用」那兩行。
+
+### 步驟 1 · 兩台都裝 cloudflared
+
+```bash
+brew install cloudflared      # macOS；WSL/Linux 用對應套件，Windows 下載 cloudflared.exe
+```
+
+### 步驟 2 · 建立 Telegram bot，拿到 token 與 chat_id
+
+1. 在 Telegram 找 **@BotFather** → `/newbot` → 照指示命名，拿到 **bot token**。
+2. 對你剛建立的 bot 發一則訊息（隨便打字），讓它有一筆對話紀錄。
+3. 用 token 抓 chat_id：
+
+   ```bash
+   curl "https://api.telegram.org/bot<你的token>/getUpdates"
+   ```
+
+   回傳 JSON 裡的 `"chat":{"id": ...}` 就是你的 **chat_id**。
+
+### 步驟 3 · 兩台都建立 `.env`（在專案目錄，不會進 git）
+
+```bash
+USER_NAME=你在家裡電腦的登入帳號     # client 端需要
+TELEGRAM_BOT_TOKEN=步驟2的_token
+TELEGRAM_CHAT_ID=步驟2的_chat_id
+# SSH_LOCAL_PORT=22                  # host 端可選，要暴露的本機 SSH port
+# SSH_IDENTITY_FILE=~/.ssh/home_computer_key  # client 端可選，覆寫金鑰路徑
+```
+
+### 步驟 4 · 家裡電腦打開 SSH 伺服器
+
+- **macOS**：系統設定 → 一般 → 共享 → **遠端登入** 打開。
+- **WSL/Linux**：`sudo apt install openssh-server && sudo service ssh start`
+- **Windows**：`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` 後 `Start-Service sshd`
+
+### 步驟 5 · 家裡電腦開 tunnel
+
+```bash
+./ssh_host.sh          # 開 tunnel，把最新網址發到 Telegram 並釘選，保持這個視窗開著
+```
+
+### 步驟 6 · 筆電抓網址、用密碼連一次測試
+
+```bash
+./ssh_client.sh        # 抓最新網址、自動寫入 ~/.ssh/config
+ssh home-computer      # 此時還是用密碼登入，先確認連得進去
+```
+
+### 步驟 7 · 筆電產生金鑰並送出公鑰（改用金鑰登入）
+
+```bash
+./setup_key.sh         # 產生金鑰對 + 把公鑰送上家裡電腦（會引導你操作）
+ssh home-computer      # 再連一次，應只問 passphrase，不再問帳號密碼
+```
+
+### 步驟 8 · 家裡電腦關掉密碼登入（最後、最關鍵）
+
+**確認步驟 7 用金鑰真的連得進去後**，才到家裡電腦編輯 sshd 設定：
+
+- 設定檔位置：macOS/WSL 是 `/etc/ssh/sshd_config`，Windows 是 `C:\ProgramData\ssh\sshd_config`
+- 加入這三行：
+
+  ```
+  PasswordAuthentication no
+  KbdInteractiveAuthentication no
+  PubkeyAuthentication yes
+  ```
+
+- 重啟 SSH：macOS 重開「遠端登入」即可，WSL `sudo service ssh restart`，Windows `Restart-Service sshd`
+
+> ⚠️ 一定要**先確認金鑰能連**再關密碼，否則會把自己鎖在門外。金鑰驗證的完整原理見下方「SSH 金鑰驗證機制」。
+
+## 日常使用（之後每次連線）
+
+```bash
+# 家裡電腦
+./ssh_host.sh
+
+# 筆電
+./ssh_client.sh && ssh home-computer
+```
+
 ## SSH 金鑰驗證機制
 
 ### SSH 登入是「一個一個方法試」
 
-當你 `ssh home-mac`，client 跟 Mac（伺服器）會照順序嘗試幾種認證方式，成功一個就進去：
+當你 `ssh home-computer`，client 跟家裡電腦（伺服器）會照順序嘗試幾種認證方式，成功一個就進去：
 
 ```
 1. publickey            ← 先試金鑰
@@ -17,34 +109,34 @@
 金鑰驗證是這樣配合的：
 
 - **你的筆電**：拿私鑰證明「我是這把金鑰的主人」。
-- **家裡 Mac**：檢查它的 `~/.ssh/authorized_keys` 裡有沒有對應的公鑰。有 → 放行；沒有 → 這個方法失敗。
+- **家裡電腦**：檢查它的 `~/.ssh/authorized_keys` 裡有沒有對應的公鑰。有 → 放行；沒有 → 這個方法失敗。
 
-> **關鍵：金鑰驗證要成立，Mac 手上必須先有你的公鑰。**
+> **關鍵：金鑰驗證要成立，電腦手上必須先有你的公鑰。**
 
 ### 所以「公鑰還沒送上去」時會發生什麼
 
-公鑰還沒進 `authorized_keys` → Mac 的 `authorized_keys` 裡找不到你這把 → `publickey` 這個方法直接失敗（不是報錯，是「這條路走不通」）。
+公鑰還沒進電腦的 `authorized_keys` → `publickey` 這個方法直接失敗（不是報錯，是「這條路走不通」）。
 
 於是 client 往下試，最後落到 `password`：
 
 ```
-publickey            → Mac：我沒有你的公鑰，不行  ❌
+publickey            → 電腦：我沒有你的公鑰，不行  ❌
 keyboard-interactive → （通常也退掉）
-password             → Mac：那你打密碼吧           ✅ ← 你就是在這裡登入的
+password             → 電腦：那你打密碼吧           ✅ ← 你就是在這裡登入的
 ```
 
-這正是 `ssh-copy-id` 在步驟 2 能成功的原因：它就是趁「還在用密碼登入」的時候，把公鑰塞進 Mac 的 `authorized_keys`。
+這正是 `ssh-copy-id`（設定步驟 7）能成功的原因：它就是趁「還在用密碼登入」的時候，把公鑰塞進電腦的 `authorized_keys`。
 
 ### 整個時間線
 
-| 階段 | Mac 有你的公鑰嗎 | 你怎麼登入 |
+| 階段 | 電腦有你的公鑰嗎 | 你怎麼登入 |
 |---|---|---|
-| 步驟 2 之前 | ❌ 沒有 | 密碼（金鑰方法自動跳過） |
-| 步驟 2：`ssh-copy-id` | 用密碼登入，順手把公鑰寫上去 | 密碼 |
-| 步驟 2 之後 | ✅ 有了 | 金鑰（只問你 passphrase） |
-| 步驟 4：關密碼登入 | ✅ 有 | 只剩金鑰能進，密碼那條路封死 |
+| 送公鑰前 | ❌ 沒有 | 密碼（金鑰方法自動跳過） |
+| 送公鑰（`ssh-copy-id`） | 用密碼登入，順手把公鑰寫上去 | 密碼 |
+| 送公鑰後 | ✅ 有了 | 金鑰（只問你 passphrase） |
+| 關掉密碼登入後 | ✅ 有 | 只剩金鑰能進，密碼那條路封死 |
 
-所以現在這個階段還不是用公鑰驗證，是用密碼——**公鑰驗證要等它送上電腦之後才會生效**。這也是為什麼步驟 4（關密碼）一定要等公鑰確定送上去、金鑰能連了才做，不然密碼關了、金鑰又還沒生效，就真的進不去了。
+所以**公鑰驗證要等公鑰送上電腦之後才生效**——這就是為什麼設定步驟 8（關密碼）一定要等金鑰能連了才做，否則會把自己鎖在門外。
 
 ## 全圖（ASCII）
 
