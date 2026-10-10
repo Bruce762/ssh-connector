@@ -13,9 +13,14 @@ REMOTE_HOST=${1:-}
 REMOTE_USER=${2:-}
 HOST_ALIAS=${3:-home}
 [ -n "$REMOTE_HOST" ] || read -r -p '家裡電腦的 Tailscale IP 或 MagicDNS 名稱：' REMOTE_HOST
-[ -n "$REMOTE_USER" ] || read -r -p '家裡電腦的登入帳號：' REMOTE_USER
+[ -n "$REMOTE_USER" ] || read -r -p '家裡電腦的登入帳號（在那台電腦執行 whoami 取得）：' REMOTE_USER
+# Ignore surrounding whitespace introduced when copying the account name.
+REMOTE_USER="${REMOTE_USER#"${REMOTE_USER%%[![:space:]]*}"}"
+REMOTE_USER="${REMOTE_USER%"${REMOTE_USER##*[![:space:]]}"}"
 [[ "$REMOTE_HOST" =~ ^[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || die '主機必須是 IPv4 或 DNS 名稱。'
-[[ "$REMOTE_USER" =~ ^[a-zA-Z_][a-zA-Z0-9_.-]*$ ]] || die '登入帳號格式不支援。'
+# Account naming rules belong to the remote OS; allow numeric and locale-aware
+# alphanumeric names while rejecting whitespace and SSH config metacharacters.
+[[ "$REMOTE_USER" =~ ^[[:alnum:]_][[:alnum:]_.@-]*[$]?$ ]] || die '登入帳號格式不支援。請填入被連線電腦上 whoami 的輸出，不要填顯示名稱、整段 SSH 指令或附加主機 IP。'
 [[ "$HOST_ALIAS" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || die '別名只接受英數字、底線與連字號。'
 need ssh
 need ssh-keygen
@@ -63,7 +68,7 @@ END_MARK="# <<< tailscale managed ($HOST_ALIAS) <<<"
 TMP_CONFIG=$(mktemp "$SSH_DIR/.tailscale-config.XXXXXX")
 {
     printf '%s\nHost %s\n' "$START_MARK" "$HOST_ALIAS"
-    printf '    HostName %s\n    User %s\n    Port 22\n' "$REMOTE_HOST" "$REMOTE_USER"
+    printf '    HostName %s\n    User "%s"\n    Port 22\n' "$REMOTE_HOST" "$REMOTE_USER"
     printf '    IdentityFile "%s"\n' "$KEY_PATH"
     printf '    IdentitiesOnly yes\n    AddKeysToAgent yes\n    StrictHostKeyChecking ask\n'
     printf '    UserKnownHostsFile "%s/known_hosts"\n' "$SSH_DIR"

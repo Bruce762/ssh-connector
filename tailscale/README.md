@@ -25,6 +25,8 @@ bash tailscale/ssh_client.sh
 bash tailscale/ssh_client.sh 100.101.102.103 alex home
 ```
 
+登入帳號請填入**家裡電腦**執行 `whoami` 的輸出，不是 Tailscale 登入信箱或系統顯示名稱。腳本支援數字開頭的帳號，並會移除貼上時附帶的前後空白。
+
 腳本依序完成：
 
 - 建立 `~/.ssh/id_ed25519_tailscale`，已存在則重用；所有主機共用這台客戶端的同一把金鑰。
