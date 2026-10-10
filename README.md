@@ -1,5 +1,24 @@
 # ssh-connector
 
+## Tailscale 自動設定（Mac / Linux）
+
+若使用 Tailscale，可以自動啟用 SSH、建立與安裝金鑰，以及設定連線別名：
+
+```bash
+# 家裡電腦先執行
+bash tailscale/ssh_host.sh
+
+# 外面的電腦執行，依提示輸入家裡的 Tailscale IP 和帳號
+bash tailscale/ssh_client.sh
+
+# 完成後
+ssh home
+```
+
+兩台電腦需先登入 Tailscale；首次依提示輸入密碼與確認主機指紋即可，不用手動編輯設定檔。詳細步驟與系統授權說明見 [tailscale/README.md](tailscale/README.md)。
+
+以下為原有的 Cloudflare Tunnel 方案。
+
 用 Cloudflare Tunnel 把家裡電腦的 SSH 對外，網址透過 Telegram 自動通知，筆電端一鍵抓網址並連線。免固定 IP、免手動設定。
 
 ## 角色
