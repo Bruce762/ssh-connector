@@ -19,7 +19,9 @@
 兩端登入 Tailscale → 主機啟用 SSH → 筆電自動設定金鑰 → ssh home
 ```
 
-**1. 兩端安裝並登入 Tailscale，保持連線。** 本方案支援 macOS / Linux；Linux 主機需使用 systemd。
+**1. 兩端安裝並登入 Tailscale，保持連線。** 本方案支援 macOS / Linux（包含啟用 systemd 的 WSL 2）；Linux 主機需使用 systemd。
+
+若要讓 **Tailscale 跑在 WSL 裡，Mac 直接連進 WSL**，請先依 [WSL 2 設定流程](tailscale/README.md#wsl-setup)完成設定；儀表板、連線與背景服務的開關指令見 [WSL 日常管理](tailscale/README.md#wsl-management)。
 
 **2. 在主機執行：**
 
@@ -35,15 +37,19 @@ bash tailscale/ssh_host.sh
 bash tailscale/ssh_client.sh
 ```
 
-依提示輸入主機位址、主機帳號與所需密碼。腳本會建立金鑰、安裝公鑰、驗證登入並寫入連線設定。
+依提示輸入主機位址、主機帳號、連線名稱與所需密碼。每台主機請使用不同名稱，例如 `home-imac`、`home-windows`；同名會更新既有設定。腳本會建立金鑰、安裝公鑰、驗證登入並寫入連線設定。
 
 **4. 之後在筆電直接連線：**
+
+以下以連線名稱設為 `home` 為例；請換成你設定的名稱。
 
 ```bash
 ssh home
 ```
 
 設定腳本不必持續執行。主機須保持開機、SSH 可用，兩端 Tailscale 須保持連線。密碼提示、IP 變更與多台主機設定見 [Tailscale README](tailscale/README.md)。
+
+若主機 SSH 已能透過其他 VPN 或區網連線，直接執行客戶端並在網路選擇輸入 `2`，即可略過 Tailscale 檢查；也可使用 `bash tailscale/ssh_client.sh --skip-tailscale` 省略選擇。接著輸入該網路可用的主機位址，程式不會自動建立 VPN 連線。直接以參數提供主機位址時，預設仍檢查 Tailscale。
 
 ## Cloudflare + Telegram 執行流程
 

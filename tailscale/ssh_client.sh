@@ -2,18 +2,73 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
-if [ "${1:-}" = --help ]; then
-    echo '用法：bash tailscale/ssh_client.sh [Tailscale-IP或MagicDNS名稱 使用者 [別名]]'
-    echo '不帶參數會互動詢問；預設別名 home，預設 SSH port 22。'
-    exit 0
-fi
+CHECK_TAILSCALE=yes
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --skip-tailscale) CHECK_TAILSCALE=no; shift ;;
+        --help)
+            echo '用法：bash tailscale/ssh_client.sh [--skip-tailscale] [主機IPv4或DNS名稱 使用者 [別名]]'
+            echo '未提供的位址、使用者與別名會互動詢問；預設 SSH port 22。'
+            echo '不提供主機位址時，會先詢問使用 Tailscale 或其他 VPN／區網。'
+            echo '--skip-tailscale：使用其他 VPN 或區網時，略過 Tailscale 檢查。'
+            exit 0 ;;
+        --) shift; break ;;
+        -*) die "不支援的選項：$1，請使用 --help。" ;;
+        *) break ;;
+    esac
+done
 [ "$#" -le 3 ] || die '參數太多，請使用 --help。'
 [ "$(id -u)" -ne 0 ] || die '請用自己的帳號執行，不要 sudo 整支腳本。'
 REMOTE_HOST=${1:-}
 REMOTE_USER=${2:-}
-HOST_ALIAS=${3:-home}
-[ -n "$REMOTE_HOST" ] || read -r -p '家裡電腦的 Tailscale IP 或 MagicDNS 名稱：' REMOTE_HOST
+HOST_ALIAS=${3:-}
+SSH_CONFIG="${SSH_DIR:-$HOME/.ssh}/config"
+printf '\n目前已設定的連線別名（%s）：\n' "$SSH_CONFIG"
+EXISTING_ALIASES=''
+if [ -f "$SSH_CONFIG" ]; then
+    EXISTING_ALIASES=$(awk '
+        {
+            line=$0
+            sub(/#.*/, "", line)
+            sub(/^[ \t]+/, "", line)
+            sub(/^[Hh][Oo][Ss][Tt][ \t]*=[ \t]*/, "Host ", line)
+            count=split(line, fields, /[ \t]+/)
+            if (tolower(fields[1]) != "host") next
+            for (i=2; i<=count; i++) {
+                alias=fields[i]
+                gsub(/"/, "", alias)
+                if (alias == "" || alias ~ /[*?!]/ || seen[alias]++) continue
+                printf "  - %s\n", alias
+            }
+        }
+    ' "$SSH_CONFIG")
+fi
+if [ -n "$EXISTING_ALIASES" ]; then
+    printf '%s\n' "$EXISTING_ALIASES"
+else
+    echo '  （尚無連線別名）'
+fi
+echo '不同名稱會保留多筆設定；使用相同名稱會更新該筆 Tailscale 設定。'
+if [ -z "$REMOTE_HOST" ]; then
+    if [ "$CHECK_TAILSCALE" = yes ]; then
+        printf '\n請選擇連線網路：\n  1) Tailscale\n  2) 其他 VPN／區網（略過 Tailscale 檢查）\n'
+        while true; do
+            read -r -p '請輸入 1 或 2（直接 Enter 使用 Tailscale）：' NETWORK_CHOICE
+            case "$NETWORK_CHOICE" in
+                ''|1) break ;;
+                2) CHECK_TAILSCALE=no; break ;;
+                *) echo '請輸入 1 或 2。' ;;
+            esac
+        done
+    fi
+    if [ "$CHECK_TAILSCALE" = yes ]; then
+        read -r -p '家裡電腦的 Tailscale IP 或 MagicDNS 名稱：' REMOTE_HOST
+    else
+        read -r -p '家裡電腦可連線的 IPv4 或 DNS 名稱（VPN／區網位址）：' REMOTE_HOST
+    fi
+fi
 [ -n "$REMOTE_USER" ] || read -r -p '家裡電腦的登入帳號（在那台電腦執行 whoami 取得）：' REMOTE_USER
+[ -n "$HOST_ALIAS" ] || read -r -p '這台電腦的連線名稱（例如 home-imac 或 home-windows；同名會更新既有設定）：' HOST_ALIAS
 # Ignore surrounding whitespace introduced when copying the account name.
 REMOTE_USER="${REMOTE_USER#"${REMOTE_USER%%[![:space:]]*}"}"
 REMOTE_USER="${REMOTE_USER%"${REMOTE_USER##*[![:space:]]}"}"
@@ -21,10 +76,12 @@ REMOTE_USER="${REMOTE_USER%"${REMOTE_USER##*[![:space:]]}"}"
 # Account naming rules belong to the remote OS; allow numeric and locale-aware
 # alphanumeric names while rejecting whitespace and SSH config metacharacters.
 [[ "$REMOTE_USER" =~ ^[[:alnum:]_][[:alnum:]_.@-]*[$]?$ ]] || die '登入帳號格式不支援。請填入被連線電腦上 whoami 的輸出，不要填顯示名稱、整段 SSH 指令或附加主機 IP。'
-[[ "$HOST_ALIAS" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || die '別名只接受英數字、底線與連字號。'
+[[ "$HOST_ALIAS" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]*$ ]] || die '連線名稱不可空白，須以英數字開頭，且只接受英數字、底線與連字號。'
 need ssh
 need ssh-keygen
-check_tailscale
+if [ "$CHECK_TAILSCALE" = yes ]; then
+    check_tailscale
+fi
 prepare_ssh_dir
 KEY_PATH="$SSH_DIR/id_ed25519_tailscale"
 SSH_CONFIG="$SSH_DIR/config"

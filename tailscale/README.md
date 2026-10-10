@@ -1,6 +1,6 @@
 # Tailscale SSH 自動設定
 
-用 Tailscale 連通兩台電腦，再以 OpenSSH 金鑰登入。支援 macOS 與 Linux；Linux 主機需使用 systemd，這組 Bash 腳本不支援原生 Windows。無需 Telegram、Cloudflare 或 `.env`。
+用 Tailscale 連通兩台電腦，再以 OpenSSH 金鑰登入。支援 macOS 與 Linux（包含啟用 systemd 的 WSL 2）；Linux 主機需使用 systemd，這組 Bash 腳本不支援原生 Windows。無需 Telegram、Cloudflare 或 `.env`。
 
 <a id="setup"></a>
 
@@ -46,6 +46,144 @@ ssh home
 
 若終端機已在 `tailscale/` 目錄內，設定指令改用 `bash ssh_host.sh` 或 `bash ssh_client.sh`。
 
+<a id="wsl-setup"></a>
+
+## Tailscale 跑在 WSL 2 裡，Mac 直接連進 WSL
+
+這個流程將 WSL 當成 Linux 主機，Mac 透過 WSL 自己的 Tailscale IP 連進 WSL 的 OpenSSH 服務。Mac 須先安裝 Tailscale 並保持連線。
+
+### 1. 確認 WSL 2，並中斷 Windows 的 Tailscale
+
+在 **Windows PowerShell** 執行：
+
+```powershell
+wsl -l -v
+```
+
+確認要使用的發行版 `VERSION` 是 `2`，再從 Windows 的 Tailscale 選單中斷連線。
+
+[Tailscale 官方文件](https://tailscale.com/docs/install/windows/wsl2)建議只在 Windows 主機執行 Tailscale，因為 Windows 與 WSL 同時執行時，雙層 Tailscale 封包可能造成連線問題。若採用本節的 WSL 方案，請讓 Windows 端保持中斷，Mac 端則保持連線。
+
+### 2. 在 WSL 確認 systemd
+
+在 **WSL 終端機**執行：
+
+```bash
+ps -p 1 -o comm=
+```
+
+顯示 `systemd` 就繼續下一步。若不是，開啟設定檔：
+
+```bash
+sudo nano /etc/wsl.conf
+```
+
+加入以下設定；已有 `[boot]` 區段就修改該區段，保留其他設定：
+
+```ini
+[boot]
+systemd=true
+```
+
+儲存後，先存好所有 WSL 工作，再到 **Windows PowerShell** 執行：
+
+```powershell
+wsl --shutdown
+```
+
+這會停止所有 WSL 發行版。重新開啟 WSL，再執行 `ps -p 1 -o comm=` 確認。
+若無法啟用 systemd，在 PowerShell 用 `wsl --version` 確認 WSL 版本至少為 `0.67.6`，必要時執行 `wsl --update`。參考 [Microsoft systemd 說明](https://learn.microsoft.com/en-us/windows/wsl/systemd)。
+
+### 3. 在 WSL 安裝並啟動 Tailscale
+
+尚未安裝才需要執行：
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+接著啟動背景服務並連線：
+
+```bash
+sudo systemctl enable --now tailscaled
+sudo tailscale up
+```
+
+開啟顯示的登入網址，登入與 Mac 相同的 Tailnet。
+
+### 4. 確認連線，啟用 WSL 的 SSH
+
+在 **WSL 終端機**執行：
+
+```bash
+tailscale status
+tailscale ip -4
+
+cd ~/ssh-connector/tailscale
+bash ssh_host.sh
+```
+
+專案若放在其他位置，請調整 `cd` 路徑。用自己的 WSL 帳號執行，不要用 `sudo` 執行整支腳本；腳本會在需要時詢問 sudo 密碼，並印出 **WSL 的 Tailscale IP、登入帳號與主機指紋**。
+
+### 5. 在 Mac 設定連線
+
+在 **Mac 的專案根目錄**執行：
+
+```bash
+bash tailscale/ssh_client.sh
+```
+
+填入上一步的 **WSL Tailscale IP**，不要填 Windows 端的 IP。登入帳號填 WSL 的 `whoami` 結果；例如你的 WSL 帳號是 `bruce` 就填 `bruce`。核對主機指紋並依提示完成金鑰設定，之後在 Mac 執行：
+
+```bash
+ssh home
+```
+
+此方案使用 WSL 裡的 `ssh_host.sh`。Windows 要保持開機，WSL、`tailscaled` 與 SSH 服務也要保持運作；`enable --now` 會在 WSL 啟動時啟用服務，不會自動讓關閉的 WSL 啟動。
+
+<a id="wsl-management"></a>
+
+## WSL 的 Tailscale 日常管理
+
+以下指令都在 **WSL 終端機**操作。
+
+**開啟管理儀表板**，透過 Windows 預設瀏覽器：
+
+```bash
+explorer.exe "https://console.tailscale.com/admin/"
+```
+
+也可以直接點：[Tailscale 儀表板](https://console.tailscale.com/admin/)。
+
+**中斷 WSL 的 Tailscale 連線：**
+
+```bash
+sudo tailscale down
+```
+
+**重新連線：**
+
+```bash
+sudo tailscale up
+```
+
+這些指令會保留登入資訊；`down` 只中斷連線，背景服務仍會運作，不等於登出。參考 [Tailscale CLI 說明](https://tailscale.com/docs/reference/tailscale-cli)。
+
+**連背景服務一起停止：**
+
+```bash
+sudo systemctl stop tailscaled
+```
+
+**之後重新啟動並連線：**
+
+```bash
+sudo systemctl start tailscaled
+sudo tailscale up
+```
+
+**如果 Mac 正透過 WSL 的 Tailscale 連線，中斷連線或停止背景服務後，SSH 也會中斷。** 請在 WSL 本機終端機執行重新連線指令。
+
 <a id="authentication"></a>
 
 ## 主機關閉 SSH 密碼登入有什麼影響？
@@ -90,6 +228,8 @@ ssh -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInt
 
 ## 詳細說明索引
 
+- [Mac 直接連進 WSL 2 的設定流程](#wsl-setup)
+- [WSL 的 Tailscale 日常管理](#wsl-management)
 - [角色與連線參數](#roles)
 - [金鑰與密碼說明](#prompts)
 - [金鑰、設定與備份位置](#storage)
@@ -129,7 +269,11 @@ ssh -o PreferredAuthentications=publickey -o PasswordAuthentication=no -o KbdInt
   用公鑰驗證這台筆電是否有登入權限
 ```
 
-也可直接傳入參數，省略位址與帳號的互動詢問：
+設定時會詢問主機位址、登入帳號與連線名稱，例如 `home-imac` 或 `home-windows`。之後使用 `ssh home-imac` 或 `ssh home-windows` 連線；本文件的 `ssh home` 範例適用於將連線名稱設為 `home` 的情況。
+
+腳本啟動後、詢問主機位址前，會先列出目前 `~/.ssh/config` 中明確設定的 `Host` 別名（指定 `SSH_DIR` 時則讀取該目錄的 `config`）。清單會去除重複名稱，略過萬用字元與否定條件；不展開 `Include` 引用的檔案。同一台主機設定兩個名稱只會增加兩筆連線設定，仍重用這台筆電的 `id_ed25519_tailscale` 金鑰。
+
+也可直接傳入參數，省略位址、帳號與連線名稱的互動詢問：
 
 ```bash
 # 範例值請換成實際的主機位址與帳號
@@ -140,9 +284,29 @@ bash tailscale/ssh_client.sh home-mac remote_user home
 | --- | --- | --- |
 | 第一個 | `home-mac` | 主機的 MagicDNS 名稱，也可填 Tailscale IPv4 |
 | 第二個 | `remote_user` | 主機的登入帳號，不是 IP、Tailscale 登入信箱或顯示名稱 |
-| 第三個 | `home` | 自訂連線捷徑；省略時預設為 `home` |
+| 第三個 | `home` | 自訂連線捷徑；省略時會詢問，不可空白 |
 
 帳號支援數字開頭，腳本會移除貼上時附帶的前後空白。不同主機請用不同別名；同名別名會更新為這次指定的主機。
+
+### 使用其他 VPN 或區網
+
+直接執行客戶端時，會先列出既有別名，再詢問使用「1) Tailscale」或「2) 其他 VPN／區網」。選擇 `2` 就會略過 Tailscale 檢查，不需要安裝或啟動 Tailscale；直接按 Enter 則使用 Tailscale。
+
+也可加上 `--skip-tailscale`，直接使用其他 VPN／區網，省略網路選擇：
+
+```bash
+# 互動選擇網路，再設定位址、帳號與名稱
+bash tailscale/ssh_client.sh
+
+# 直接使用其他 VPN／區網
+bash tailscale/ssh_client.sh --skip-tailscale
+
+# 或直接指定主機 IPv4、帳號與別名（請換成實際資料）
+bash tailscale/ssh_client.sh --skip-tailscale 192.168.1.10 remote_user home-imac
+ssh home-imac
+```
+
+此選項只略過 Tailscale 檢查，不會建立 VPN 連線。請先連好 VPN，確認可存取主機的 SSH port 22，且主機已啟用 SSH。客戶端仍會核對主機指紋、安裝公鑰並驗證金鑰登入，成功後才更新設定；沿用既有金鑰與 managed block 格式。`ssh_host.sh` 仍使用 Tailscale 主機設定流程。
 
 <a id="prompts"></a>
 
