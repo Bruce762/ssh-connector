@@ -1,275 +1,93 @@
 # ssh-connector
 
-## Tailscale 自動設定（Mac / Linux）
+提供 **Tailscale** 與 **Cloudflare + Telegram** 兩套獨立的 SSH 遠端連線方案。選一套設定即可，不需要兩套都執行。
 
-若使用 Tailscale，可以自動啟用 SSH、建立與安裝金鑰，以及設定連線別名：
+| 比較 | Tailscale | Cloudflare + Telegram |
+| --- | --- | --- |
+| 連線方式 | 經由 Tailscale 私人網路，以 IP 或 MagicDNS 找到主機 | 主機建立 Tunnel，筆電從 Telegram 取得最新網址 |
+| 事前準備 | 兩端安裝 Tailscale、登入同一個 Tailnet | 兩端安裝 cloudflared，設定 Telegram bot 與 `.env`，主機啟用 SSH |
+| 首次金鑰設定 | 整合在 `ssh_client.sh` | 另外執行 `setup_key.sh` |
+| 日常連線 | `ssh home` | 更新網址後執行 `ssh home-computer` |
+| 持續運作需求 | 兩端 Tailscale 與主機 SSH 服務 | 主機 Tunnel 與 SSH 服務 |
+| 詳細文件 | [Tailscale README](tailscale/README.md) | [Cloudflare README](cloudflare/README.md) |
+
+**主機（Host）是被連線的電腦；筆電（Client）是發起連線的電腦。** 兩個資料夾有同名腳本，請使用所選方案的路徑。以下指令都從專案根目錄執行。
+
+## Tailscale 執行流程
+
+```text
+兩端登入 Tailscale → 主機啟用 SSH → 筆電自動設定金鑰 → ssh home
+```
+
+**1. 兩端安裝並登入 Tailscale，保持連線。** 本方案支援 macOS / Linux；Linux 主機需使用 systemd。
+
+**2. 在主機執行：**
 
 ```bash
-# 家裡電腦先執行
 bash tailscale/ssh_host.sh
+```
 
-# 外面的電腦執行，依提示輸入家裡的 Tailscale IP 和帳號
+腳本會啟用 SSH，並印出主機位址、登入帳號與指紋。
+
+**3. 在筆電執行一次：**
+
+```bash
 bash tailscale/ssh_client.sh
+```
 
-# 完成後
+依提示輸入主機位址、主機帳號與所需密碼。腳本會建立金鑰、安裝公鑰、驗證登入並寫入連線設定。
+
+**4. 之後在筆電直接連線：**
+
+```bash
 ssh home
 ```
 
-兩台電腦需先登入 Tailscale；首次依提示輸入密碼與確認主機指紋即可，不用手動編輯設定檔。詳細步驟與系統授權說明見 [tailscale/README.md](tailscale/README.md)。
+設定腳本不必持續執行。主機須保持開機、SSH 可用，兩端 Tailscale 須保持連線。密碼提示、IP 變更與多台主機設定見 [Tailscale README](tailscale/README.md)。
 
-以下為原有的 Cloudflare Tunnel 方案。
+## Cloudflare + Telegram 執行流程
 
-用 Cloudflare Tunnel 把家裡電腦的 SSH 對外，網址透過 Telegram 自動通知，筆電端一鍵抓網址並連線。免固定 IP、免手動設定。
+```text
+安裝工具、設定 bot 與 .env → 主機啟用 SSH 並開 Tunnel
+    → 筆電取得網址 → 首次安裝金鑰 → ssh home-computer
+```
 
-## 角色
+**1. 依 [Cloudflare README](cloudflare/README.md) 完成準備：**
 
-- **家裡電腦（host）**：被連線的一方，跑 [ssh_host.sh](ssh_host.sh) 開 tunnel、發網址。
-- **筆電（client）**：外出連線的一方，跑 [ssh_client.sh](ssh_client.sh) 抓網址、連線。
+- 兩端安裝 `cloudflared`，主機啟用 SSH。
+- 建立 Telegram bot，取得 token 與 chat ID。
+- 兩端在 `cloudflare/.env` 填入設定；新環境可複製 `cloudflare/.env.example` 建立，已有設定則保留。
 
-## 設定步驟（第一次）
-
-照順序做一次，之後就只剩「日常使用」那兩行。
-
-### 步驟 1 · 兩台都裝 cloudflared
+**2. 在主機執行並保持此程序運作：**
 
 ```bash
-brew install cloudflared      # macOS；WSL/Linux 用對應套件，Windows 下載 cloudflared.exe
+bash cloudflare/ssh_host.sh
 ```
 
-### 步驟 2 · 建立 Telegram bot，拿到 token 與 chat_id
+腳本啟動 Tunnel，將最新網址發送並釘選到 Telegram。
 
-1. 在 Telegram 找 **@BotFather** → `/newbot` → 照指示命名，拿到 **bot token**。
-2. 對你剛建立的 bot 發一則訊息（隨便打字），讓它有一筆對話紀錄。
-3. 用 token 抓 chat_id：
-
-   ```bash
-   curl "https://api.telegram.org/bot<你的token>/getUpdates"
-   ```
-
-   回傳 JSON 裡的 `"chat":{"id": ...}` 就是你的 **chat_id**。
-
-### 步驟 3 · 兩台都建立 `.env`（在專案目錄，不會進 git）
+**3. 在筆電取得網址，首次安裝金鑰：**
 
 ```bash
-USER_NAME=你在家裡電腦的登入帳號     # client 端需要
-TELEGRAM_BOT_TOKEN=步驟2的_token
-TELEGRAM_CHAT_ID=步驟2的_chat_id
-# SSH_LOCAL_PORT=22                  # host 端可選，要暴露的本機 SSH port
-# SSH_IDENTITY_FILE=~/.ssh/home_computer_key  # client 端可選，覆寫金鑰路徑
+bash cloudflare/ssh_client.sh
+bash cloudflare/setup_key.sh
+ssh home-computer
 ```
 
-### 步驟 4 · 家裡電腦打開 SSH 伺服器
+第一支腳本寫入連線設定；第二支建立金鑰並詢問是否安裝公鑰，輸入 `y` 後依提示登入主機。
 
-- **macOS**：系統設定 → 一般 → 共享 → **遠端登入** 打開。
-- **WSL/Linux**：`sudo apt install openssh-server && sudo service ssh start`
-- **Windows**：`Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0` 後 `Start-Service sshd`
-
-### 步驟 5 · 家裡電腦開 tunnel
+**4. 之後每次在筆電更新網址再連線：**
 
 ```bash
-./ssh_host.sh          # 開 tunnel，把最新網址發到 Telegram 並釘選，保持這個視窗開著
+bash cloudflare/ssh_client.sh && ssh home-computer
 ```
 
-### 步驟 6 · 筆電抓網址、用密碼連一次測試
+主機 Tunnel 必須持續運作，不必每次重建金鑰。雙擊啟動器位於 `cloudflare/mac/` 與 `cloudflare/windows/`。
+Cloudflare README 中的 `./ssh_host.sh` 等指令，需先 `cd cloudflare` 再執行。
 
-```bash
-./ssh_client.sh        # 抓最新網址、自動寫入 ~/.ssh/config
-ssh home-computer      # 此時還是用密碼登入，先確認連得進去
-```
+## 兩套方案共用的注意事項
 
-### 步驟 7 · 筆電產生金鑰並送出公鑰（改用金鑰登入）
-
-```bash
-./setup_key.sh         # 產生金鑰對 + 把公鑰送上家裡電腦（會引導你操作）
-ssh home-computer      # 再連一次，應只問 passphrase，不再問帳號密碼
-```
-
-### 步驟 8 · 家裡電腦關掉密碼登入（最後、最關鍵）
-
-**確認步驟 7 用金鑰真的連得進去後**，才到家裡電腦編輯 sshd 設定：
-
-- 設定檔位置：macOS/WSL 是 `/etc/ssh/sshd_config`，Windows 是 `C:\ProgramData\ssh\sshd_config`
-- 加入這三行：
-
-  ```
-  PasswordAuthentication no
-  KbdInteractiveAuthentication no
-  PubkeyAuthentication yes
-  ```
-
-- 重啟 SSH：macOS 重開「遠端登入」即可，WSL `sudo service ssh restart`，Windows `Restart-Service sshd`
-
-> ⚠️ 一定要**先確認金鑰能連**再關密碼，否則會把自己鎖在門外。金鑰驗證的完整原理見下方「SSH 金鑰驗證機制」。
-
-## 日常使用（之後每次連線）
-
-```bash
-# 家裡電腦
-./ssh_host.sh
-
-# 筆電
-./ssh_client.sh && ssh home-computer
-```
-
-## SSH 金鑰驗證機制
-
-### SSH 登入是「一個一個方法試」
-
-當你 `ssh home-computer`，client 跟家裡電腦（伺服器）會照順序嘗試幾種認證方式，成功一個就進去：
-
-```
-1. publickey            ← 先試金鑰
-2. keyboard-interactive
-3. password             ← 退到這裡
-```
-
-### 公鑰驗證怎麼運作（需要「兩邊都有東西」）
-
-金鑰驗證是這樣配合的：
-
-- **你的筆電**：拿私鑰證明「我是這把金鑰的主人」。
-- **家裡電腦**：檢查它的 `~/.ssh/authorized_keys` 裡有沒有對應的公鑰。有 → 放行；沒有 → 這個方法失敗。
-
-> **關鍵：金鑰驗證要成立，電腦手上必須先有你的公鑰。**
-
-### 所以「公鑰還沒送上去」時會發生什麼
-
-公鑰還沒進電腦的 `authorized_keys` → `publickey` 這個方法直接失敗（不是報錯，是「這條路走不通」）。
-
-於是 client 往下試，最後落到 `password`：
-
-```
-publickey            → 電腦：我沒有你的公鑰，不行  ❌
-keyboard-interactive → （通常也退掉）
-password             → 電腦：那你打密碼吧           ✅ ← 你就是在這裡登入的
-```
-
-這正是 `ssh-copy-id`（設定步驟 7）能成功的原因：它就是趁「還在用密碼登入」的時候，把公鑰塞進電腦的 `authorized_keys`。
-
-### 整個時間線
-
-| 階段 | 電腦有你的公鑰嗎 | 你怎麼登入 |
-|---|---|---|
-| 送公鑰前 | ❌ 沒有 | 密碼（金鑰方法自動跳過） |
-| 送公鑰（`ssh-copy-id`） | 用密碼登入，順手把公鑰寫上去 | 密碼 |
-| 送公鑰後 | ✅ 有了 | 金鑰（只問你 passphrase） |
-| 關掉密碼登入後 | ✅ 有 | 只剩金鑰能進，密碼那條路封死 |
-
-所以**公鑰驗證要等公鑰送上電腦之後才生效**——這就是為什麼設定步驟 8（關密碼）一定要等金鑰能連了才做，否則會把自己鎖在門外。
-
-## 全圖（ASCII）
-
-```
-╔══════════════════════════════════════════════════════════════════════╗
-║                        SSH 金鑰驗證機制                               ║
-║   私鑰簽名 · 公鑰驗簽 · 秘密不出你的機器                              ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-  登場 ── 兩位主角，各握一樣東西
-  ┌─────────────────────────────┐   ┌─────────────────────────────┐
-  │ 💻 筆電  (client)           │   │ 🖥  家裡電腦  (server)      │
-  │─────────────────────────────│   │─────────────────────────────│
-  │ [私鑰] home_computer_key    │   │ [名單] ~/.ssh/authorized_keys│
-  │        永不離開這台         │   │        准入的公鑰清單        │
-  │ [公鑰] home_computer_key.pub│   │                             │
-  │        可公開，待送出       │   │  你的公鑰要先進這份名單     │
-  └─────────────────────────────┘   └─────────────────────────────┘
-
-
-  階段 A ── 設定  [ 只做一次 ]
-  ─────────────────────────────────────────────────────────────────────
-        💻 筆電                                          🖥 家裡電腦
-
-  (1) 本機動作·不連網
-      ssh-keygen 產生金鑰對
-      ┌───────────────┐
-      │ 私鑰 → 留筆電 │
-      │ 公鑰 → 待送出 │
-      └───────────────┘
-
-  (2) 用「密碼」登入一次
-      ssh-copy-id  ──── 公鑰 ────►  寫進 authorized_keys
-      筆電 ============密碼登入===========================► 家裡電腦
-
-      ✓ 完成後：家裡電腦名單裡有了你的公鑰 → 從此可走金鑰登入
-
-
-  階段 B ── 每次登入  [ 每次連線都發生 · ssh home-computer ]
-  ─────────────────────────────────────────────────────────────────────
-        💻 筆電 (握私鑰)                              🖥 家裡電腦 (查名單)
-
-   ①  「我想用這把公鑰登入」(先送公鑰問問看)
-       筆電  ──────── 公鑰 ────────►  家裡電腦
-
-   ②                                   〔本機〕翻 authorized_keys
-                                        這把公鑰在名單裡嗎？
-                                          在 → 繼續
-                                          不在 → 退回密碼 ✗
-
-   ③  「這把可以，繼續」(PK_OK)
-       筆電  ◄──────── OK ──────────  家裡電腦
-
-   ④  用私鑰對「含 session id 的資料」簽名 → 送出簽名
-       筆電  ─────── 簽名 ─────────►  家裡電腦
-              (session id 綁死這條連線)
-
-   ⑤                                   〔本機〕用名單裡的公鑰驗簽
-                                        簽名對 → 證明對方握有私鑰
-
-   ⑥  簽名正確 → 放行，登入成功 ✅  (簽名錯 → 拒絕 ✗)
-       筆電  ◄─────── 放行 ─────────  家裡電腦
-
-      ✓ 簽名綁定 session id，側錄也無法騙下一條連線 → 防重放攻擊
-
-
-  易混 ── config 寫「私鑰」，但送出去的是「公鑰」？
-  ─────────────────────────────────────────────────────────────────────
-      你 ~/.ssh/config 裡：
-          IdentityFile ~/.ssh/home_computer_key   ← 指向「私鑰」
-
-      這只是告訴 SSH「用這個身分」，不代表私鑰會被送出去。
-      SSH 拿到私鑰後，內部拆成兩半、各做各的：
-
-                    IdentityFile = 私鑰（你的完整身分）
-                              │
-                  SSH 從私鑰「推導出」公鑰
-                              │
-              ┌───────────────┴───────────────┐
-              ▼                               ▼
-        ① 送「公鑰」去問家裡電腦        ④ 用「私鑰」在本機簽名
-          （公開，可送出）                （機密，不送！只送簽名結果）
-
-      ● 公鑰其實藏在私鑰檔裡，隨時能算出來
-        （home_computer_key.pub 只是方便複製的副本，刪了也能重生：
-         ssh-keygen -y -f ~/.ssh/home_computer_key 會印出公鑰）
-      ● 給 SSH 私鑰，是因為「能簽名的那半」才是私鑰；
-        只給公鑰就沒法簽名了。
-      ● 結論：你交出私鑰給「本機的 SSH」用，
-        但真正上網的只有「公鑰 + 簽名」，私鑰全程不出門。
-
-
-  補充 ── passphrase：第二道鎖
-  ─────────────────────────────────────────────────────────────────────
-      跟網路無關，只把「硬碟上的私鑰檔」加密。
-        [你有的]  私鑰檔本身   ── 在筆電上
-        [你知道的] passphrase   ── 解開私鑰用
-      兩道鎖：私鑰檔被偷，沒 passphrase 也用不了。
-      ssh-add：把解開後的私鑰暫存進 agent，免得每次重打。
-
-
-  易混 ── 其實有「兩種」金鑰驗證，方向相反
-  ─────────────────────────────────────────────────────────────────────
-   ┌──────────────┬──────────────────┬────────────────────┬───────────┐
-   │ 種類         │ 回答的問題       │ 靠什麼             │ 本專案    │
-   ├──────────────┼──────────────────┼────────────────────┼───────────┤
-   │ 主機驗證     │ 我連到的真的是   │ 電腦 host key      │ 已關閉    │
-   │ (host key)   │ 我家電腦嗎？     │ + 你 known_hosts   │ (Strict…no)│
-   ├──────────────┼──────────────────┼────────────────────┼───────────┤
-   │ 使用者驗證   │ 連進來的真的是   │ 你的私鑰           │ 本文主題  │
-   │ (user key)   │ 我本人嗎？       │ + 電腦 authorized_keys│ 你在做這個│
-   └──────────────┴──────────────────┴────────────────────┴───────────┘
-
-  ─────────────────────────────────────────────────────────────────────
-  一句話：你證明身分靠「私鑰簽名、電腦公鑰驗簽」，秘密不出你的機器；
-          電腦認不認你，看你的公鑰有沒有在它的 authorized_keys 名單裡。
-```
+- 金鑰由程式產生，passphrase 是自己選的私鑰保護密碼，與主機帳號密碼不同；輸入時不會顯示字元。
+- 首次安裝公鑰需有可用的登入方式。先確認金鑰登入成功，再考慮停用主機的密碼驗證。
+- 私鑰留在筆電，公鑰加入主機帳號的 `~/.ssh/authorized_keys`。兩套方案預設使用不同私鑰與別名，但都會寫入筆電的 `~/.ssh/config`。
+- Tailscale 目前會核對並保存主機指紋；Cloudflare 客戶端目前停用這項檢查。各自的驗證原理、檔案位置與限制請閱讀對應 README。

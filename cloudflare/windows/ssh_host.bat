@@ -3,7 +3,7 @@ REM Windows 雙擊啟動器 → 用 Git Bash 的 bash.exe 執行 ssh_host.sh
 REM 需先安裝 Git for Windows: https://git-scm.com/download/win
 set SCRIPT=ssh_host.sh
 
-REM 切到根目錄（本檔在 windows\ 子資料夾內）
+REM 切到 Cloudflare 方案目錄（本檔在 windows\ 子資料夾內）
 cd /d "%~dp0.."
 
 where bash >nul 2>nul
